@@ -9,21 +9,28 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.example.whosthatcritter.databinding.ActivityCameraBinding
-import java.util.concurrent.ExecutorService
 import android.Manifest
 import android.content.ContentValues
 import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
+import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
+import com.google.android.gms.tasks.Tasks
+import com.google.common.util.concurrent.ListenableFuture
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -31,7 +38,7 @@ import java.util.Locale
 class Camera : AppCompatActivity() {
     private lateinit var binding: ActivityCameraBinding
     private var imageCapture: ImageCapture? = null
-    private lateinit var cameraExecutor: ExecutorService
+    private lateinit var cameraProviderFuture: ListenableFuture<ProcessCameraProvider>
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -39,6 +46,7 @@ class Camera : AppCompatActivity() {
 
         setContentView(binding.root)
 
+        cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         // Request camera permissions
         if (allPermissionsGranted()) {
             startCamera()
@@ -52,35 +60,39 @@ class Camera : AppCompatActivity() {
             insets
         }
     }
+
     private fun startCamera() {
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
 
         cameraProviderFuture.addListener({
-            // Used to bind the lifecycle of cameras to the lifecycle owner
-            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
 
-            // Preview
+            if (isFinishing || isDestroyed) {
+                return@addListener
+            }
+
+            val cameraProvider = cameraProviderFuture.get()
+
             val preview = Preview.Builder()
                 .build()
                 .also {
                     it.setSurfaceProvider(binding.viewFinder.surfaceProvider)
                 }
 
-            imageCapture = ImageCapture.Builder()
+            val capture = ImageCapture.Builder()
                 .build()
 
-            // Select back camera as a default
-            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+            imageCapture = capture
 
             try {
-                // Unbind use cases before rebinding
-                cameraProvider.unbindAll()
-
-                // Bind use cases to camera
                 cameraProvider.bindToLifecycle(
-                    this, cameraSelector, preview, imageCapture)
+                    this,
+                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    preview,
+                    capture
+                )
 
-            } catch(exc: Exception) {
+                Log.d(TAG, "Camera successfully initialized")
+
+            } catch (exc: Exception) {
                 Log.e(TAG, "Use case binding failed", exc)
             }
 
@@ -120,29 +132,53 @@ class Camera : AppCompatActivity() {
                     val msg = "Photo capture succeeded: ${output.savedUri}"
                     Toast.makeText(baseContext, msg, Toast.LENGTH_SHORT).show()
                     Log.d(TAG, msg)
-                    val image: InputImage
-                    try {
-                        image = InputImage.fromFilePath(this@Camera, output.savedUri?: Uri.EMPTY)
-                        val labeler = ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
-                        labeler.process(image)
-                            .addOnSuccessListener { labels ->
-                                for (label in labels) {
-                                    val text = label.text
-                                    val confidence = label.confidence
-                                    val index = label.index
-                                    Log.d(TAG,"Text: ${text} Confidence: ${confidence} index: ${index}")
-                                }
-
-                            }
-                            .addOnFailureListener { e ->
-                                Log.e(TAG, "Image Label failed: ${e.message}", e)
-                            }
-                    } catch (e: IOException) {
-                        e.printStackTrace()
-                    }
+                    runCoroutine(output.savedUri?: Uri.EMPTY)
                 }
             }
         )
+    }
+
+    private val job = SupervisorJob()
+    // initialize coroutineScope using 3 types of dispatchers
+    // MAIN - UI or main thread
+    // IO for networks
+    // DEFAULT - cpu intensive
+    private val ioScope by lazy { CoroutineScope(job+ Dispatchers.IO) }
+    private suspend fun processImage(uri: Uri):Boolean {
+        var image: InputImage
+        val labeler = ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
+        try {
+            image = InputImage.fromFilePath(this@Camera, uri)
+
+            val task = labeler.process(image)
+            val result = Tasks.await(task)
+            for (label in result) {
+                val text = label.text
+                val confidence = label.confidence
+                val index = label.index
+                Log.d(TAG,"Text: ${text} Confidence: ${confidence} index: ${index}")
+            }
+            //TODO:Add Firebase Stuff
+
+        } catch (e: IOException) {
+            e.printStackTrace()
+            return false
+        }
+        finally {
+            labeler.close()
+        }
+        return true
+    }
+    private fun runCoroutine(uri: Uri) {
+        ioScope.launch {
+            val procImage = async { processImage(uri) }
+            if(procImage.await()) {
+                Log.d("Success", "Process Image returned true")
+            }
+            else {
+                Log.d("Error", "Process Image returned false")
+            }
+        }
     }
     private fun requestPermissions() {
         activityResultLauncher.launch(REQUIRED_PERMISSIONS)
@@ -151,11 +187,30 @@ class Camera : AppCompatActivity() {
         ContextCompat.checkSelfPermission(
             baseContext, it) == PackageManager.PERMISSION_GRANTED
     }
+    override fun onStop() {
+        super.onStop()
+
+        // Release CameraX resources when leaving this activity
+        if (::cameraProviderFuture.isInitialized &&
+            cameraProviderFuture.isDone) {
+
+            try {
+                cameraProviderFuture.get().unbindAll()
+                imageCapture = null
+
+                Log.d(TAG, "Camera successfully released")
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error releasing camera", e)
+            }
+        }
+    }
 
     override fun onDestroy() {
+        job.cancel()
         super.onDestroy()
-        cameraExecutor.shutdown()
     }
+
     companion object {
         private const val TAG = "CameraXApp"
         private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
@@ -182,4 +237,8 @@ class Camera : AppCompatActivity() {
                 startCamera()
             }
         }
+
+    fun onBack(view: View) {
+        finish()
+    }
 }
