@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">WhosThatCritter</string>
+    <string name="take_photo">Take Photo</string>
+    <string name="evaluate">Send To Evaluate</string>
 </resources>
