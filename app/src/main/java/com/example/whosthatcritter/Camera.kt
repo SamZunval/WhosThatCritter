@@ -9,12 +9,10 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.example.whosthatcritter.databinding.ActivityCameraBinding
-import androidx.core.content.PermissionChecker
 import java.util.concurrent.ExecutorService
 import android.Manifest
 import android.content.ContentValues
 import android.net.Uri
-import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
@@ -24,6 +22,8 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.label.ImageLabeling
+import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -96,9 +96,6 @@ class Camera : AppCompatActivity() {
         val contentValues = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, name)
             put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-            if(Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
-                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/CameraX-Image")
-            }
         }
 
         // Create output options object which contains file + metadata
@@ -126,6 +123,20 @@ class Camera : AppCompatActivity() {
                     val image: InputImage
                     try {
                         image = InputImage.fromFilePath(this@Camera, output.savedUri?: Uri.EMPTY)
+                        val labeler = ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
+                        labeler.process(image)
+                            .addOnSuccessListener { labels ->
+                                for (label in labels) {
+                                    val text = label.text
+                                    val confidence = label.confidence
+                                    val index = label.index
+                                    Log.d(TAG,"Text: ${text} Confidence: ${confidence} index: ${index}")
+                                }
+
+                            }
+                            .addOnFailureListener { e ->
+                                Log.e(TAG, "Image Label failed: ${e.message}", e)
+                            }
                     } catch (e: IOException) {
                         e.printStackTrace()
                     }
