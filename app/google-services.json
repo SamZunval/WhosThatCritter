@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "816804822474",
+    "project_id": "whosthatcritter-b542d",
+    "storage_bucket": "whosthatcritter-b542d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:816804822474:android:26a69ed15d5991070b6333",
+        "android_client_info": {
+          "package_name": "com.example.whosthatcritter"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB2oiSAO3vJFfAeFyZYvJR34ahKC9Uxq5g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
