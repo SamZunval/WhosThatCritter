@@ -187,8 +187,8 @@ class Camera : AppCompatActivity() {
         ContextCompat.checkSelfPermission(
             baseContext, it) == PackageManager.PERMISSION_GRANTED
     }
-    override fun onStop() {
-        super.onStop()
+    override fun onPause() {
+        super.onPause()
 
         // Release CameraX resources when leaving this activity
         if (::cameraProviderFuture.isInitialized &&
