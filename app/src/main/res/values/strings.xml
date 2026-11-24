@@ -2,4 +2,17 @@
     <string name="app_name">WhosThatCritter</string>
     <string name="take_photo">Take Photo</string>
     <string name="back">Back</string>
+
+    <string name="about_heading">About the App</string>
+
+    <string name="about_description">Who\'sThatCritter is an Android application designed to help
+        users identify animals using Google\'s ML Kit Image Labeling technology.
+        Users can build a personal collection
+        of identified animals and view statistics about their discoveries.</string>
+    <string name="features_heading">Key Features</string>
+    <string name="about_features">• Identify animals using AI image labeling\n• Save identified animals to your collection\n• View previously discovered animals\n• Track collection statistics and animal rarity</string>
+    <string name="technologies_heading">Technologies Used</string>
+    <string name="about_technologies">Kotlin, Android Studio, Google ML Kit, Firebase Authentication and Cloud Firestore.</string>
+    <string name="team_heading">Development Team</string>
+    <string name="team_members">Rudy Abdulmalek\nSamuel Zuniga Valencia\nConnor Tidy</string>
 </resources>

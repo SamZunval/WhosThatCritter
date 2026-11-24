@@ -28,4 +28,9 @@ class MainActivity : AppCompatActivity() {
         val intent = Intent(this, Camera::class.java)
         startActivity(intent)
     }
+
+    fun openAbout(view: View) {
+        val intent = Intent(this, AboutActivity::class.java)
+        startActivity(intent)
+    }
 }
