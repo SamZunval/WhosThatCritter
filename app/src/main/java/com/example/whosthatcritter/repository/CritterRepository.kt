@@ -89,4 +89,8 @@ class CritterRepository {
             .delete()
             .await()
     }
+
+    suspend fun authenticate() {
+        getUserId()
+    }
 }

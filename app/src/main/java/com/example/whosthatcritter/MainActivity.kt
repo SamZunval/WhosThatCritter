@@ -33,4 +33,9 @@ class MainActivity : AppCompatActivity() {
         val intent = Intent(this, AboutActivity::class.java)
         startActivity(intent)
     }
+
+    fun openGallery(view: View) {
+        val intent = Intent(this, GalleryActivity::class.java)
+        startActivity(intent)
+    }
 }

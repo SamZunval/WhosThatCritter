@@ -9,10 +9,12 @@
 
     <androidx.camera.view.PreviewView
         android:id="@+id/viewFinder"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" >
-
-    </androidx.camera.view.PreviewView>
+        android:layout_width="411dp"
+        android:layout_height="731dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
 
     <Button
         android:id="@+id/button2"
@@ -24,6 +26,15 @@
         android:text="@string/back"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
+
+    <Button
+        android:id="@+id/btnFromGallery"
+        android:layout_width="97dp"
+        android:layout_height="60dp"
+        android:onClick="openGallery"
+        android:text="UseGallery"
+        tools:layout_editor_absoluteX="298dp"
+        tools:layout_editor_absoluteY="35dp" />
 
     <Button
         android:id="@+id/image_capture_button"

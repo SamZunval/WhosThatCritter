@@ -34,6 +34,15 @@ import kotlinx.coroutines.launch
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Locale
+import com.google.firebase.firestore.FirebaseFirestore
+import com.example.whosthatcritter.model.CritterModel
+import com.example.whosthatcritter.repository.CritterRepository
+import com.google.firebase.auth.FirebaseAuth
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
+import java.io.ByteArrayOutputStream
+import androidx.activity.result.PickVisualMediaRequest
 
 class Camera : AppCompatActivity() {
     private lateinit var binding: ActivityCameraBinding
@@ -144,30 +153,77 @@ class Camera : AppCompatActivity() {
     // IO for networks
     // DEFAULT - cpu intensive
     private val ioScope by lazy { CoroutineScope(job+ Dispatchers.IO) }
-    private suspend fun processImage(uri: Uri):Boolean {
+
+
+    private suspend fun processImage(uri: Uri): Boolean {
         var image: InputImage
         val labeler = ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
+
         try {
+            //Loads the image
             image = InputImage.fromFilePath(this@Camera, uri)
 
+            //Identifies the image
             val task = labeler.process(image)
             val result = Tasks.await(task)
+
+            //Logs all the possible answers
             for (label in result) {
                 val text = label.text
                 val confidence = label.confidence
                 val index = label.index
-                Log.d(TAG,"Text: ${text} Confidence: ${confidence} index: ${index}")
+                Log.d(TAG, "Text: ${text} Confidence: ${confidence} index: ${index}")
             }
             //TODO:Add Firebase Stuff
+            //Finds the label with the highest confidence
+            val bestLabel = result.maxByOrNull { it.confidence }
 
-        } catch (e: IOException) {
-            e.printStackTrace()
+            //We need to check otherelse tons of issues arise from String?
+            if (bestLabel == null) {
+                Log.e(TAG, "No animal labels were detected")
+                return false
+            }
+
+            // Logs the most confident answer
+            val animalName = bestLabel.text
+            val confidence = bestLabel.confidence.toDouble()
+
+            Log.d(TAG, "Animal: $animalName, Confidence: $confidence")
+
+            // Compresses the image and converts it to Base64
+            val imageString = compressImage(uri)
+
+            // Checks image size before saving
+            val imageSize = imageString.toByteArray(Charsets.UTF_8).size
+
+            if (imageSize > 750000) {
+                Log.e(TAG, "Image is too large to save in Firestore")
+                return false
+            }
+
+            // Creates the animal model
+            val critter = CritterModel(
+                animalName = animalName,
+                imageUri = imageString,
+                confidence = confidence
+            )
+
+            // Saves animal information and image in Firestore
+            val repository = CritterRepository()
+            repository.insert(critter)
+
+            Log.d(TAG, "Animal and image successfully saved to Firestore")
+
+            return true
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing or saving image", e)
             return false
-        }
-        finally {
+
+        } finally {
             labeler.close()
         }
-        return true
+        return true;
     }
     private fun runCoroutine(uri: Uri) {
         ioScope.launch {
@@ -241,4 +297,37 @@ class Camera : AppCompatActivity() {
     fun onBack(view: View) {
         finish()
     }
+
+    //compress image to not overload database
+    private fun compressImage(uri: Uri): String {
+
+        val inputStream = contentResolver.openInputStream(uri)
+        val bitmap = BitmapFactory.decodeStream(inputStream)
+        inputStream?.close()
+
+        val outputStream = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 50, outputStream)
+
+        val imageBytes = outputStream.toByteArray()
+        return Base64.encodeToString(imageBytes, Base64.DEFAULT)
+    }
+
+    //use for imagepicking
+    private val imagePicker = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) {
+        uri ->
+        if (uri != null) {
+            runCoroutine(uri)
+        } else {
+            Log.d(TAG, "No image selected")
+        }
+    }
+
+    fun openGallery(view: View) {
+        imagePicker.launch(
+            PickVisualMediaRequest(
+                ActivityResultContracts.PickVisualMedia.ImageOnly
+            )
+        )
+    }
+
 }
