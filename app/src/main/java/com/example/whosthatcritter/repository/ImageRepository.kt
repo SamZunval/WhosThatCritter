@@ -71,9 +71,11 @@ class ImageRepository(context: Context) {
 
             return animals
 
-        } catch (e: Exception){
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing image", e)
+            return emptyList()
         }
-        return TODO("Provide the return value")
     }
 
     private companion object {
