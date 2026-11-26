@@ -1,89 +1,72 @@
 package com.example.whosthatcritter
 
-import android.content.pm.PackageManager
-import android.os.Bundle
-import androidx.activity.enableEdgeToEdge
-import androidx.appcompat.app.AppCompatActivity
-import androidx.camera.core.ImageCapture
-import androidx.core.content.ContextCompat
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
-import com.example.whosthatcritter.databinding.ActivityCameraBinding
 import android.Manifest
 import android.content.ContentValues
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
 import android.view.View
 import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
-import com.google.android.gms.tasks.Tasks
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.ViewModelProvider
+import com.example.whosthatcritter.databinding.ActivityCameraBinding
+import com.example.whosthatcritter.viewmodel.CameraViewModel
+import com.example.whosthatcritter.viewmodel.CameraViewModelFactory
 import com.google.common.util.concurrent.ListenableFuture
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.label.ImageLabeling
-import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.launch
-import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Locale
-import com.google.firebase.firestore.FirebaseFirestore
-import com.example.whosthatcritter.model.CritterModel
-import com.example.whosthatcritter.repository.CritterRepository
-import com.google.firebase.auth.FirebaseAuth
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.util.Base64
-import java.io.ByteArrayOutputStream
-import androidx.activity.result.PickVisualMediaRequest
 
 class Camera : AppCompatActivity() {
     private lateinit var binding: ActivityCameraBinding
-    private var imageCapture: ImageCapture? = null
+    private lateinit var viewModel: CameraViewModel
     private lateinit var cameraProviderFuture: ListenableFuture<ProcessCameraProvider>
+    private var imageCapture: ImageCapture? = null
+    private var cameraBound = false
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         binding = ActivityCameraBinding.inflate(layoutInflater)
-
         setContentView(binding.root)
-
+        // Initialize ViewModel
+        viewModel = ViewModelProvider(this,CameraViewModelFactory(application))[CameraViewModel::class.java]
         cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-        // Request camera permissions
-        if (allPermissionsGranted()) {
-            startCamera()
-        } else {
+        // Observe ViewModel
+        observeViewModel()
+        // Camera button
+        binding.imageCaptureButton.setOnClickListener {
+            takePhoto()
+        }
+        // Check camera permissions
+        if (!allPermissionsGranted()) {
             requestPermissions()
         }
-        binding.imageCaptureButton.setOnClickListener { takePhoto() }
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
-            insets
-        }
     }
-
     private fun startCamera() {
+        if (cameraBound) return
 
         cameraProviderFuture.addListener({
-
             if (isFinishing || isDestroyed) {
                 return@addListener
             }
 
             val cameraProvider = cameraProviderFuture.get()
-
             val preview = Preview.Builder()
                 .build()
                 .also {
-                    it.setSurfaceProvider(binding.viewFinder.surfaceProvider)
+                    it.setSurfaceProvider(
+                        binding.viewFinder.surfaceProvider
+                    )
                 }
 
             val capture = ImageCapture.Builder()
@@ -92,242 +75,139 @@ class Camera : AppCompatActivity() {
             imageCapture = capture
 
             try {
-                cameraProvider.bindToLifecycle(
-                    this,
-                    CameraSelector.DEFAULT_BACK_CAMERA,
-                    preview,
-                    capture
-                )
-
+                cameraProvider.bindToLifecycle(this,CameraSelector.DEFAULT_BACK_CAMERA, preview, capture)
+                cameraBound = true
                 Log.d(TAG, "Camera successfully initialized")
-
             } catch (exc: Exception) {
-                Log.e(TAG, "Use case binding failed", exc)
+                imageCapture = null
+                Log.e(TAG, "Camera binding failed", exc)
+                Toast.makeText(this, "Unable to start camera", Toast.LENGTH_SHORT).show()
             }
-
         }, ContextCompat.getMainExecutor(this))
     }
-    fun takePhoto() {
-        // Get a stable reference of the modifiable image capture use case
-        val imageCapture = imageCapture ?: return
-
-        // Create time stamped name and MediaStore entry.
-        val name = SimpleDateFormat(FILENAME_FORMAT, Locale.CANADA)
-            .format(System.currentTimeMillis())
+    private fun takePhoto() {
+        val capture = imageCapture ?: return
+        val name = SimpleDateFormat(FILENAME_FORMAT,Locale.CANADA).format(System.currentTimeMillis())
         val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
-            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            put(
+                MediaStore.MediaColumns.DISPLAY_NAME,
+                name
+            )
+            put(
+                MediaStore.MediaColumns.MIME_TYPE,
+                "image/jpeg"
+            )
         }
-
-        // Create output options object which contains file + metadata
-        val outputOptions = ImageCapture.OutputFileOptions
-            .Builder(contentResolver,
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                contentValues)
-            .build()
-
-        // Set up image capture listener, which is triggered after photo has
-        // been taken
-        imageCapture.takePicture(
+        val outputOptions = ImageCapture.OutputFileOptions.Builder(contentResolver,MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues).build()
+        capture.takePicture(
             outputOptions,
             ContextCompat.getMainExecutor(this),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onError(exc: ImageCaptureException) {
-                    Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
+                    Toast.makeText(baseContext,"Photo capture failed",Toast.LENGTH_SHORT).show()
                 }
 
-                override fun
-                        onImageSaved(output: ImageCapture.OutputFileResults){
-                    val msg = "Photo capture succeeded: ${output.savedUri}"
-                    Toast.makeText(baseContext, msg, Toast.LENGTH_SHORT).show()
-                    Log.d(TAG, msg)
-                    runCoroutine(output.savedUri?: Uri.EMPTY)
+                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    val uri = output.savedUri
+                    if (uri == null) {
+                        Toast.makeText(baseContext, "Unable to retrieve image",Toast.LENGTH_SHORT).show()
+                        return
+                    }
+                    //Toast.makeText(baseContext,"Photo captured successfully",Toast.LENGTH_SHORT).show()
+                    Log.d(TAG, "Photo saved: $uri")
+                    // Send URI to ViewModel for processing
+                    viewModel.processImage(uri)
                 }
             }
         )
     }
 
-    private val job = SupervisorJob()
-    // initialize coroutineScope using 3 types of dispatchers
-    // MAIN - UI or main thread
-    // IO for networks
-    // DEFAULT - cpu intensive
-    private val ioScope by lazy { CoroutineScope(job+ Dispatchers.IO) }
-
-
-    private suspend fun processImage(uri: Uri): Boolean {
-        var image: InputImage
-        val labeler = ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
-
-        try {
-            //Loads the image
-            image = InputImage.fromFilePath(this@Camera, uri)
-
-            //Identifies the image
-            val task = labeler.process(image)
-            val result = Tasks.await(task)
-
-            //Logs all the possible answers
-            for (label in result) {
-                val text = label.text
-                val confidence = label.confidence
-                val index = label.index
-                Log.d(TAG, "Text: ${text} Confidence: ${confidence} index: ${index}")
-            }
-            //TODO:Add Firebase Stuff
-            //Finds the label with the highest confidence
-            val bestLabel = result.maxByOrNull { it.confidence }
-
-            //We need to check otherelse tons of issues arise from String?
-            if (bestLabel == null) {
-                Log.e(TAG, "No animal labels were detected")
-                return false
+    private fun observeViewModel() {
+        viewModel.uiState.observe(this) { state ->
+            // Image processing started
+            if (state.isProcessing) {
+                Log.d(TAG, "Processing image...")
             }
 
-            // Logs the most confident answer
-            val animalName = bestLabel.text
-            val confidence = bestLabel.confidence.toDouble()
+            // Image processing completed
+            if (state.labels.isNotEmpty()) {
+                Log.d(TAG, "Image processing successful")
+                state.labels.forEach { label ->
+                    Log.d(TAG,"Label: ${label.text}, " + "Confidence: ${label.confidence}, " + "Index: ${label.index}")
+                }
 
-            Log.d(TAG, "Animal: $animalName, Confidence: $confidence")
-
-            // Compresses the image and converts it to Base64
-            val imageString = compressImage(uri)
-
-            // Checks image size before saving
-            val imageSize = imageString.toByteArray(Charsets.UTF_8).size
-
-            if (imageSize > 750000) {
-                Log.e(TAG, "Image is too large to save in Firestore")
-                return false
+                // Get highest confidence label
+                val bestLabel = state.labels.maxByOrNull {
+                    it.confidence
+                }
+                bestLabel?.let {
+                    Toast.makeText(this, "Identified: ${it.text}", Toast.LENGTH_LONG).show()
+                }
+                //TODO:Add Firebase Stuff
             }
 
-            // Creates the animal model
-            val critter = CritterModel(
-                animalName = animalName,
-                imageUri = imageString,
-                confidence = confidence
-            )
-
-            // Saves animal information and image in Firestore
-            val repository = CritterRepository()
-            repository.insert(critter)
-
-            Log.d(TAG, "Animal and image successfully saved to Firestore")
-
-            return true
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Error processing or saving image", e)
-            return false
-
-        } finally {
-            labeler.close()
-        }
-        return true;
-    }
-    private fun runCoroutine(uri: Uri) {
-        ioScope.launch {
-            val procImage = async { processImage(uri) }
-            if(procImage.await()) {
-                Log.d("Success", "Process Image returned true")
-            }
-            else {
-                Log.d("Error", "Process Image returned false")
+            // Handle errors
+            state.error?.let { error ->
+                Log.e(TAG, error)
             }
         }
     }
+
     private fun requestPermissions() {
         activityResultLauncher.launch(REQUIRED_PERMISSIONS)
     }
-    private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
-        ContextCompat.checkSelfPermission(
-            baseContext, it) == PackageManager.PERMISSION_GRANTED
-    }
-    override fun onStop() {
-        super.onStop()
-
-        // Release CameraX resources when leaving this activity
-        if (::cameraProviderFuture.isInitialized &&
-            cameraProviderFuture.isDone) {
-
-            try {
-                cameraProviderFuture.get().unbindAll()
-                imageCapture = null
-
-                Log.d(TAG, "Camera successfully released")
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error releasing camera", e)
-            }
+    private fun allPermissionsGranted(): Boolean {
+        return REQUIRED_PERMISSIONS.all {
+            ContextCompat.checkSelfPermission(baseContext,it) == PackageManager.PERMISSION_GRANTED
         }
     }
-
-    override fun onDestroy() {
-        job.cancel()
-        super.onDestroy()
-    }
-
-    companion object {
-        private const val TAG = "CameraXApp"
-        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
-        private val REQUIRED_PERMISSIONS =
-            mutableListOf (
-                Manifest.permission.CAMERA
-            ).apply {}.toTypedArray()
-    }
-    private val activityResultLauncher =
-        registerForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions())
+    private val activityResultLauncher =registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions())
         { permissions ->
-            // Handle Permission granted/rejected
-            var permissionGranted = true
-            permissions.entries.forEach {
-                if (it.key in REQUIRED_PERMISSIONS && it.value == false)
-                    permissionGranted = false
+            val permissionGranted = REQUIRED_PERMISSIONS.all {
+                permissions[it] == true || ContextCompat.checkSelfPermission(this,it) == PackageManager.PERMISSION_GRANTED
             }
             if (!permissionGranted) {
-                Toast.makeText(baseContext,
-                    "Permission request denied",
-                    Toast.LENGTH_SHORT).show()
+                Toast.makeText(baseContext,"Camera permission denied",Toast.LENGTH_SHORT).show()
             } else {
                 startCamera()
             }
         }
 
-    fun onBack(view: View) {
-        finish()
-    }
+    override fun onResume() {
+        super.onResume()
 
-    //compress image to not overload database
-    private fun compressImage(uri: Uri): String {
-
-        val inputStream = contentResolver.openInputStream(uri)
-        val bitmap = BitmapFactory.decodeStream(inputStream)
-        inputStream?.close()
-
-        val outputStream = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 50, outputStream)
-
-        val imageBytes = outputStream.toByteArray()
-        return Base64.encodeToString(imageBytes, Base64.DEFAULT)
-    }
-
-    //use for imagepicking
-    private val imagePicker = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) {
-        uri ->
-        if (uri != null) {
-            runCoroutine(uri)
-        } else {
-            Log.d(TAG, "No image selected")
+        if (allPermissionsGranted()) {
+            startCamera()
         }
     }
 
-    fun openGallery(view: View) {
-        imagePicker.launch(
-            PickVisualMediaRequest(
-                ActivityResultContracts.PickVisualMedia.ImageOnly
-            )
-        )
+    override fun onPause() {
+        super.onPause()
+
+        if (::cameraProviderFuture.isInitialized && cameraProviderFuture.isDone) {
+            cameraProviderFuture.get().unbindAll()
+            cameraBound = false
+            imageCapture = null
+        }
+    }
+    fun onBack(view: View) {
+        finish()
+    }
+    companion object {
+        private const val TAG = "CameraXApp"
+        private const val FILENAME_FORMAT ="yyyy-MM-dd-HH-mm-ss-SSS"
+        private val REQUIRED_PERMISSIONS =arrayOf(Manifest.permission.CAMERA)
     }
 
+    private val imagePicker = registerForActivityResult(ActivityResultContracts.GetContent())
+    {
+        uri -> if (uri != null){
+            viewModel.processImage(uri)
+        }
+    }
+
+
+    fun openGallery(view: View) {
+        imagePicker.launch("image/*")
+    }
 }

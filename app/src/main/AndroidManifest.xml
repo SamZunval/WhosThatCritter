@@ -31,7 +31,8 @@
         <activity
             android:name=".Camera"
             android:exported="false"
-            android:windowSoftInputMode="adjustResize" />
+            android:windowSoftInputMode="adjustResize"
+            android:screenOrientation="portrait"/>
         <activity
             android:name=".AboutActivity"
             android:exported="false"
@@ -40,6 +41,7 @@
             android:name=".GalleryActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+
     </application>
 
 </manifest>
